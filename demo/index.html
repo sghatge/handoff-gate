@@ -1,0 +1,1151 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Handoff Gate</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a release sheet. The verdict is a stamp that stays pinned to the top.
+   Left column is what the agent handed over (the things you can change).
+   Right column is the gate's ruling, check by check, in the order a send is built. */
+:root {
+  --paper: #EDF0F4;
+  --sheet: #FFFFFF;
+  --ink: #14202E;
+  --muted: #566475;
+  --line: #D2D9E2;
+  --accent: #2B47C9;
+  --go: #17794A;
+  --hold: #9A5B00;
+  --block: #B92D27;
+  --on-status: #FFFFFF;
+  --font-display: 'IBM Plex Sans Condensed', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0E141B; --sheet: #161E28; --ink: #E7ECF2; --muted: #94A1B1; --line: #2A3643;
+    --accent: #93A6FF; --go: #4FC48C; --hold: #E8AC4E; --block: #F2776E; --on-status: #0E141B;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0E141B; --sheet: #161E28; --ink: #E7ECF2; --muted: #94A1B1; --line: #2A3643;
+  --accent: #93A6FF; --go: #4FC48C; --hold: #E8AC4E; --block: #F2776E; --on-status: #0E141B;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 15px/1.5 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto; z-index: 10;
+  height: env(safe-area-inset-top, 0px); background: var(--paper);
+}
+.wrap {
+  max-width: 1180px; margin-inline: auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1, h2, h3, p { margin: 0; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-size: 0.86em; }
+.label {
+  font: 600 12px/1.2 var(--font-display);
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+}
+
+/* ---------- opener ---------- */
+.opener { padding-block: 28px 20px; display: grid; gap: 18px; }
+.opener h1 {
+  font: 700 clamp(30px, 5vw, 44px)/1 var(--font-display);
+  letter-spacing: -0.01em; text-wrap: balance;
+}
+.opener .lede { max-width: 62ch; font-size: 16px; color: var(--muted); }
+.opener .lede strong { color: var(--ink); font-weight: 600; }
+.scenarios { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.scenario {
+  text-align: left; cursor: pointer;
+  background: transparent; border: 1px solid var(--line); border-radius: 3px;
+  padding: 12px 14px; display: grid; gap: 4px; min-width: 0;
+}
+.scenario:hover { border-color: var(--muted); }
+.scenario[aria-pressed="true"] { background: var(--sheet); border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.scenario b { font: 600 17px/1.2 var(--font-display); }
+.scenario span { font-size: 13px; color: var(--muted); }
+
+/* ---------- verdict stamp (sticky) ---------- */
+.verdict {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: var(--sheet); border-block: 1px solid var(--line);
+  --v: var(--go);
+}
+.verdict[data-verdict="HOLD"] { --v: var(--hold); }
+.verdict[data-verdict="BLOCK"] { --v: var(--block); }
+.verdict .wrap { display: flex; align-items: center; gap: 16px; padding-block: 10px; flex-wrap: wrap; }
+.stamp {
+  flex: none; min-width: 104px; text-align: center;
+  background: var(--v); color: var(--on-status);
+  font: 700 28px/1 var(--font-display); letter-spacing: 0.05em;
+  padding: 9px 14px; border-radius: 2px;
+  transition: background-color 0.25s ease;
+}
+.verdict-text { flex: 1 1 220px; min-width: 0; display: grid; gap: 1px; }
+.verdict-text b { font: 600 18px/1.2 var(--font-display); }
+.verdict-text span { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.verdict-meta { display: grid; gap: 1px; text-align: right; font-size: 12px; color: var(--muted); }
+.verdict-meta .mono { font-size: 12px; }
+
+/* ---------- two columns ---------- */
+.desk { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 28px; padding-block: 22px 28px; align-items: start; }
+.col-head { display: grid; gap: 4px; margin-bottom: 14px; }
+.col-head h2 { font: 600 21px/1.2 var(--font-display); }
+.col-head p { font-size: 13px; color: var(--muted); }
+
+/* ---------- controls ---------- */
+.groups { display: grid; gap: 18px; }
+.group { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.chk { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.chk input { flex: none; width: 17px; height: 17px; margin: 2.5px 0 0; accent-color: var(--accent); }
+.chk input:disabled + span { color: var(--muted); }
+.chk code { font-family: var(--font-mono); font-size: 0.86em; }
+.sub { font-size: 13px; color: var(--muted); margin-bottom: -4px; }
+.seg { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 6px; }
+.seg legend { padding: 0; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.seg-opts { display: flex; flex-wrap: wrap; gap: 0; }
+.seg label { position: relative; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg label span {
+  display: block; padding: 6px 12px; font-size: 14px;
+  border: 1px solid var(--line); margin-left: -1px; background: var(--sheet);
+}
+.seg label:first-child span { margin-left: 0; border-radius: 3px 0 0 3px; }
+.seg label:last-child span { border-radius: 0 3px 3px 0; }
+.seg input:checked + span { background: var(--ink); border-color: var(--ink); color: var(--sheet); position: relative; }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rng { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline; }
+.rng label { font-size: 13px; color: var(--muted); }
+.rng output { font: 500 14px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.rng input { grid-column: 1 / -1; width: 100%; margin: 4px 0 0; accent-color: var(--accent); }
+
+/* ---------- ruling ---------- */
+.sheet { background: var(--sheet); border: 1px solid var(--line); border-radius: 3px; }
+.stages { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+.stage-tab {
+  background: transparent; border: 0; border-right: 1px solid var(--line); cursor: pointer;
+  padding: 10px 8px 9px; text-align: left; display: grid; gap: 5px; min-width: 0;
+  --s: var(--go);
+}
+.stage-tab:last-child { border-right: 0; }
+.stage-tab[data-status="hold"] { --s: var(--hold); }
+.stage-tab[data-status="block"] { --s: var(--block); }
+.stage-tab i { display: block; height: 5px; background: var(--s); border-radius: 1px; transition: background-color 0.25s ease; }
+.stage-tab b { font: 600 13px/1.2 var(--font-display); overflow-wrap: anywhere; }
+.stage-tab span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.who { padding: 14px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; }
+.who-list { display: grid; gap: 6px; }
+.who-row { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 4px 14px; align-items: baseline; }
+.who-row .ids { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.who-row .ids .mono { padding: 0 5px; border: 1px solid var(--line); border-radius: 2px; }
+.who-row .ids .mono[data-status="block"] { border-color: var(--block); color: var(--block); }
+.who-row .ids .mono[data-status="hold"] { border-color: var(--hold); color: var(--hold); }
+.who-none { color: var(--muted); }
+
+.stage { scroll-margin-top: 84px; }
+.stage-head { padding: 14px 16px 6px; display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.stage + .stage { border-top: 1px solid var(--line); }
+.check {
+  display: grid; grid-template-columns: 54px 62px minmax(0, 1fr); gap: 2px 12px;
+  padding: 8px 16px; align-items: baseline;
+}
+.check[data-status="hold"] { background: color-mix(in srgb, var(--hold) 8%, var(--sheet)); }
+.check[data-status="block"] { background: color-mix(in srgb, var(--block) 8%, var(--sheet)); }
+.check.changed { animation: flash 0.9s ease-out; }
+@keyframes flash { from { box-shadow: inset 0 0 0 2px var(--accent); } to { box-shadow: inset 0 0 0 2px transparent; } }
+.st {
+  font: 500 11px/1 var(--font-mono); letter-spacing: 0.06em; text-align: center;
+  padding: 4px 0 3px; border: 1px solid; border-radius: 2px; align-self: start; margin-top: 2px;
+}
+.st[data-status="pass"] { color: var(--go); border-color: color-mix(in srgb, var(--go) 45%, transparent); }
+.st[data-status="warn"] { color: var(--muted); border-style: dashed; border-color: var(--muted); }
+.st[data-status="hold"] { background: var(--hold); border-color: var(--hold); color: var(--on-status); }
+.st[data-status="block"] { background: var(--block); border-color: var(--block); color: var(--on-status); }
+.check .id { color: var(--muted); }
+.check .body { min-width: 0; display: grid; gap: 2px; }
+.check .title { font-weight: 500; }
+.check .detail { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.check:not([data-status="pass"]) .detail { color: var(--ink); }
+.check .fix { font-size: 13px; color: var(--muted); }
+.check .fix b { font-weight: 600; color: var(--ink); }
+
+/* ---------- records ---------- */
+.records { display: grid; gap: 10px; padding-bottom: 20px; }
+.records details { background: var(--sheet); border: 1px solid var(--line); border-radius: 3px; }
+.records summary { cursor: pointer; padding: 11px 16px; font: 600 15px/1.3 var(--font-display); }
+.records .inner { border-top: 1px solid var(--line); padding: 12px 16px 16px; display: grid; gap: 10px; }
+.records .inner p { font-size: 13px; color: var(--muted); max-width: 70ch; }
+.records pre {
+  margin: 0; overflow-x: auto; max-height: 360px; overflow-y: auto;
+  font: 400 12.5px/1.5 var(--font-mono); background: var(--paper); border: 1px solid var(--line);
+  border-radius: 2px; padding: 12px;
+}
+.copy {
+  justify-self: start; cursor: pointer; background: var(--ink); color: var(--sheet);
+  border: 0; border-radius: 3px; padding: 7px 14px; font-weight: 500; font-size: 14px;
+}
+.foot { padding-block: 0 36px; font-size: 13px; color: var(--muted); display: grid; gap: 6px; max-width: 76ch; }
+.foot a { color: var(--accent); }
+
+@media (max-width: 860px) {
+  .desk { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .scenarios { grid-template-columns: minmax(0, 1fr); }
+  .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stage-tab:nth-child(3) { border-right: 0; }
+  .stage-tab:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
+  .verdict-meta { text-align: left; flex: 1 1 100%; grid-auto-flow: column; justify-content: start; gap: 14px; }
+  .stage { scroll-margin-top: 120px; }
+}
+@media (max-width: 520px) {
+  .stamp { font-size: 22px; min-width: 84px; padding: 8px 10px; }
+  .verdict .wrap { gap: 10px 12px; }
+  .check { grid-template-columns: 54px minmax(0, 1fr); }
+  .check .body { grid-column: 1 / -1; }
+  .who-row { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .check.changed { animation: none; }
+  .stamp, .stage-tab i { transition: none; }
+}
+</style>
+
+<header class="wrap opener">
+  <p class="label">Demo, synthetic data</p>
+  <h1>Handoff Gate</h1>
+  <p class="lede">An AI agent planned this campaign and handed it over. <strong>Change what it handed over and watch whether it is allowed to send.</strong> Every rule is deterministic, every hold names the person who can clear it, and every verdict is fingerprinted.</p>
+  <div class="scenarios" id="scenarios" role="group" aria-label="Starting package"></div>
+</header>
+
+<div class="verdict" id="verdict" data-verdict="GO" aria-live="polite">
+  <div class="wrap">
+    <div class="stamp" id="stamp">GO</div>
+    <div class="verdict-text"><b id="verdict-line"></b><span id="verdict-counts"></span></div>
+    <div class="verdict-meta">
+      <span>CLI exit code <span class="mono" id="exit-code"></span></span>
+      <span>sha256 <span class="mono" id="fp"></span></span>
+    </div>
+  </div>
+</div>
+
+<main class="wrap desk">
+  <section aria-labelledby="h-package">
+    <div class="col-head">
+      <h2 id="h-package">What the agent handed over</h2>
+      <p id="package-name"></p>
+    </div>
+    <form class="groups" id="controls" autocomplete="off"></form>
+  </section>
+
+  <section aria-labelledby="h-ruling">
+    <div class="col-head">
+      <h2 id="h-ruling">The ruling</h2>
+      <p><span id="rule-count"></span> checks in the order a send is built. Policy <span class="mono" id="policy-version"></span>.</p>
+    </div>
+    <div class="sheet">
+      <div class="stages" id="stages"></div>
+      <div class="who">
+        <p class="label">Who needs to act</p>
+        <div class="who-list" id="who"></div>
+      </div>
+      <div id="checks"></div>
+    </div>
+  </section>
+</main>
+
+<section class="wrap records">
+  <details>
+    <summary>Audit record for this verdict</summary>
+    <div class="inner">
+      <p>The fingerprint is a SHA-256 over the exact package and policy version that were judged. Change one recipient count after sign-off and it no longer matches.</p>
+      <pre id="audit-json" tabindex="0"></pre>
+      <button class="copy" type="button" id="copy-audit">Copy record</button>
+    </div>
+  </details>
+  <details>
+    <summary>The package, as JSON</summary>
+    <div class="inner">
+      <p>This is the contract the gate reads. It is this project's own format. An adapter maps whatever your planning agent produces into it.</p>
+      <pre id="package-json" tabindex="0"></pre>
+    </div>
+  </details>
+</section>
+
+<footer class="wrap foot">
+  <p>Lumen &amp; Loom is a fictional retailer and all data here is synthetic. Nothing on this page connects to a live marketing platform or sends anything.</p>
+  <p>Independent project by Sangram Ghatge. Not affiliated with or endorsed by Adobe.</p>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  const Gate = (function () {
+/**
+ * Handoff Gate — rule engine.
+ *
+ * Takes a campaign "handoff package" (what a planning agent produced) and an
+ * organisation policy, and decides whether the package may go to activation.
+ *
+ *   GO     every check passed
+ *   HOLD   nothing is wrong, but a named human still has to sign something
+ *   BLOCK  something is wrong or cannot be proven; it must not send
+ *
+ * The engine is deterministic and has no dependencies, so the same file runs
+ * in Node (CLI, tests, CI) and in the browser (the demo).
+ *
+ * Design rules:
+ *   - Fail closed. Missing evidence is a BLOCK, never a pass.
+ *   - A rule that throws is a BLOCK, never a skip.
+ *   - Every non-pass result names an owner role and a way to clear it.
+ */
+
+const STAGES = [
+  { id: 'brief', label: 'Brief' },
+  { id: 'audience', label: 'Audience and consent' },
+  { id: 'content', label: 'Content' },
+  { id: 'delivery', label: 'Delivery' },
+  { id: 'approvals', label: 'Approvals' },
+  { id: 'measurement', label: 'Measurement' },
+];
+
+const RANK = { pass: 0, warn: 1, hold: 2, block: 3 };
+
+// ---------- small helpers ----------
+
+const isBlank = (v) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+const list = (items) => items.join(', ');
+const fmt = (n) => Number(n).toLocaleString('en-GB');
+
+function parseOffset(s) {
+  const m = /^([+-])(\d{2}):(\d{2})$/.exec(s ?? '');
+  if (!m) throw new Error(`Invalid UTC offset "${s}"`);
+  return (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+function hhmmToMinutes(s) {
+  const m = /^(\d{2}):(\d{2})$/.exec(s ?? '');
+  if (!m) throw new Error(`Invalid time "${s}"`);
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function minutesToHhmm(min) {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+}
+
+function localMinutes(date, offsetMin) {
+  const utc = date.getUTCHours() * 60 + date.getUTCMinutes();
+  return (((utc + offsetMin) % 1440) + 1440) % 1440;
+}
+
+function inWindow(min, start, end) {
+  return start <= end ? min >= start && min < end : min >= start || min < end;
+}
+
+// ---------- context ----------
+
+function buildContext(pkg, policy) {
+  const brief = pkg.brief ?? {};
+  const audience = pkg.audience ?? {};
+  const variants = pkg.content?.variants ?? [];
+  const delivery = pkg.delivery ?? {};
+  const approvals = pkg.approvals ?? [];
+  const people = policy.people ?? [];
+  const marketIds = Array.isArray(brief.markets) ? brief.markets : [];
+  const markets = marketIds
+    .filter((id) => policy.markets?.[id])
+    .map((id) => ({ id, ...policy.markets[id] }));
+
+  const person = (id) => people.find((p) => p.id === id);
+
+  /** An approval counts only if a known human who holds that role gave it. */
+  const approvalProblem = (a) => {
+    if (a.byType === 'agent') return `${a.role} was approved by an agent (${a.by})`;
+    const p = person(a.by);
+    if (!p) return `${a.role} was approved by "${a.by}", who is not in the people directory`;
+    if (!p.roles.includes(a.role)) return `${a.by} approved as ${a.role} but does not hold that role`;
+    if (a.role === 'send-authorizer' && a.by === pkg.requestedBy) {
+      return `${a.by} requested this campaign and also authorised the send`;
+    }
+    return null;
+  };
+  const validApproval = (role) => approvals.find((a) => a.role === role && !approvalProblem(a));
+
+  return {
+    pkg, policy, brief, audience, variants, delivery, approvals,
+    marketIds, markets, person, approvalProblem, validApproval,
+    volume: audience.estimatedVolume,
+  };
+}
+
+// ---------- rules ----------
+
+const pass = (detail) => ({ status: 'pass', detail });
+const warn = (detail, owner, fix) => ({ status: 'warn', detail, owner, fix });
+const hold = (detail, owner, fix) => ({ status: 'hold', detail, owner, fix });
+const block = (detail, owner, fix) => ({ status: 'block', detail, owner, fix });
+
+const RULES = [
+  // ----- Brief -----
+  {
+    id: 'BRF-01', stage: 'brief', title: 'Brief is complete',
+    run({ brief }) {
+      const missing = [];
+      if (isBlank(brief.name)) missing.push('name');
+      if (isBlank(brief.objective)) missing.push('objective');
+      if (isBlank(brief.kpi?.metric) || isBlank(brief.kpi?.target)) missing.push('KPI and target');
+      if (isBlank(brief.owner)) missing.push('owner');
+      if (isBlank(brief.channel)) missing.push('channel');
+      if (!Array.isArray(brief.markets) || brief.markets.length === 0) missing.push('markets');
+      if (missing.length) {
+        return block(`Missing: ${list(missing)}.`, 'campaign-owner',
+          'Send the brief back to the requester. A campaign without an owner and a target cannot be judged later.');
+      }
+      return pass(`${brief.objective} Target: ${brief.kpi.metric} ${brief.kpi.target}.`);
+    },
+  },
+  {
+    id: 'BRF-02', stage: 'brief', title: 'Markets are known',
+    run({ marketIds, policy }) {
+      const unknown = marketIds.filter((id) => !policy.markets?.[id]);
+      if (unknown.length) {
+        return block(`No policy exists for: ${list(unknown)}.`, 'campaign-owner',
+          'Add the market to the policy (locales, consent basis, quiet hours) before anything sends there.');
+      }
+      if (!marketIds.length) return block('No markets listed.', 'campaign-owner', 'Name the markets.');
+      return pass(`Policy found for ${list(marketIds)}.`);
+    },
+  },
+
+  // ----- Audience and consent -----
+  {
+    id: 'AUD-01', stage: 'audience', title: 'Audience has an owner',
+    run({ audience, policy, validApproval }) {
+      if (audience.source === 'registry') {
+        const entry = (policy.audienceRegistry ?? []).find((a) => a.id === audience.registryId);
+        if (!entry) {
+          return block(`Audience "${audience.registryId ?? 'none'}" is not in the registry.`, 'audience-owner',
+            'Use a registered audience, or register this one with an owner.');
+        }
+        return pass(`Registered audience "${entry.name}", owned by ${entry.owner}.`);
+      }
+      if (audience.source === 'agent-created') {
+        const a = validApproval('audience-owner');
+        if (a) return pass(`Agent-built audience "${audience.name}", signed off by ${a.by}.`);
+        return hold(`"${audience.name}" was built by the agent. Nobody has checked who is in it.`, 'audience-owner',
+          'The audience owner reviews the selection logic and a sample, then signs off.');
+      }
+      return block(`Audience source "${audience.source ?? 'none'}" is not recognised.`, 'audience-owner',
+        'State whether the audience comes from the registry or was built by the agent.');
+    },
+  },
+  {
+    id: 'AUD-02', stage: 'audience', title: 'Consent basis matches channel and market',
+    run({ audience, brief, markets }) {
+      if (isBlank(audience.consentBasis)) {
+        return block('The audience carries no consent basis.', 'audience-owner',
+          'Rebuild the audience on a consent-filtered base. An audience with no consent basis does not send.');
+      }
+      const wrong = markets.filter((m) => m.consent?.[brief.channel] !== audience.consentBasis);
+      if (wrong.length) {
+        return block(
+          `Audience consent is "${audience.consentBasis}". ` +
+          wrong.map((m) => `${m.id} requires "${m.consent?.[brief.channel] ?? 'no basis defined'}" for ${brief.channel}`).join('; ') + '.',
+          'audience-owner', 'Filter the audience on the required consent basis for each market.');
+      }
+      return pass(`"${audience.consentBasis}" is the required basis for ${brief.channel} in ${list(markets.map((m) => m.id))}.`);
+    },
+  },
+  {
+    id: 'AUD-03', stage: 'audience', title: 'Suppressions are applied',
+    run({ audience, policy }) {
+      const applied = audience.suppressions ?? [];
+      const missing = (policy.requiredSuppressions ?? []).filter((s) => !applied.includes(s));
+      if (missing.length) {
+        return block(`Not applied: ${list(missing)}.`, 'audience-owner',
+          'Apply every required suppression. Opt-outs and quarantined addresses are not optional.');
+      }
+      return pass(`Applied: ${list(applied)}.`);
+    },
+  },
+  {
+    id: 'AUD-04', stage: 'audience', title: 'Contact pressure is within the cap',
+    run({ pkg, policy }) {
+      const touches = pkg.calendarContext?.plannedTouches7d;
+      const cap = policy.pressure?.maxTouchesPer7d;
+      if (typeof touches !== 'number') {
+        return block('Planned touches for this audience were not supplied.', 'campaign-owner',
+          'Check the campaign calendar. Pressure that was not measured is treated as over the cap.');
+      }
+      if (touches > cap) {
+        return block(`This would be touch ${touches} in 7 days. The cap is ${cap}.`, 'campaign-owner',
+          'Move the send, or exclude recipients already at the cap.');
+      }
+      return pass(`Touch ${touches} of ${cap} allowed in 7 days.`);
+    },
+  },
+  {
+    id: 'AUD-05', stage: 'audience', title: 'Large sends have deliverability sign-off',
+    run({ volume, policy, validApproval }) {
+      if (typeof volume !== 'number') {
+        return block('No estimated volume supplied.', 'campaign-owner', 'Run the count before handoff.');
+      }
+      const limit = policy.volume.largeSendThreshold;
+      if (volume <= limit) return pass(`${fmt(volume)} recipients, under the ${fmt(limit)} threshold.`);
+      const a = validApproval('deliverability-lead');
+      if (a) return pass(`${fmt(volume)} recipients, signed off by ${a.by}.`);
+      return hold(`${fmt(volume)} recipients is over the ${fmt(limit)} threshold.`, 'deliverability-lead',
+        'The deliverability lead checks reputation, throughput and the wave plan, then signs off.');
+    },
+  },
+
+  // ----- Content -----
+  {
+    id: 'CNT-01', stage: 'content', title: 'Every market has its language',
+    run({ markets, variants }) {
+      const have = new Set(variants.map((v) => v.locale));
+      const gaps = [];
+      for (const m of markets) {
+        for (const loc of m.requiredLocales ?? []) if (!have.has(loc)) gaps.push(`${m.id} needs ${loc}`);
+      }
+      if (gaps.length) {
+        return block(`${gaps.join('; ')}. Variants supplied: ${list([...have]) || 'none'}.`, 'content-approver',
+          'Produce and review the missing language variant. Do not fall back to another language.');
+      }
+      return pass(`Variants cover ${list([...have])}.`);
+    },
+  },
+  {
+    id: 'CNT-02', stage: 'content', title: 'Personalisation fields exist',
+    run({ variants, policy }) {
+      const known = new Set(policy.schemaFields ?? []);
+      const bad = [];
+      for (const v of variants) {
+        for (const f of v.personalizationFields ?? []) if (!known.has(f)) bad.push(`${f} (${v.id})`);
+      }
+      if (bad.length) {
+        return block(`Not in the recipient schema: ${list(bad)}.`, 'content-approver',
+          'Map the field to a real schema attribute or remove it. An unknown field renders blank or fails the delivery.');
+      }
+      return pass('Every field used is in the recipient schema.');
+    },
+  },
+  {
+    id: 'CNT-03', stage: 'content', title: 'Unsubscribe link is present',
+    run({ variants }) {
+      const missing = variants.filter((v) => !v.hasUnsubscribe).map((v) => v.id);
+      if (!variants.length) return block('No variants supplied.', 'content-approver', 'Supply the content.');
+      if (missing.length) {
+        return block(`No unsubscribe link in: ${list(missing)}.`, 'content-approver',
+          'Restore the unsubscribe block from the approved template.');
+      }
+      return pass(`Present in all ${variants.length} variants.`);
+    },
+  },
+  {
+    id: 'CNT-04', stage: 'content', title: 'Brand check ran, and a human ruled on flags',
+    run({ variants, validApproval }) {
+      const notRun = variants.filter((v) => !v.brandCheck || v.brandCheck.status === 'not-run').map((v) => v.id);
+      if (notRun.length) {
+        return block(`Brand check has not run on: ${list(notRun)}.`, 'content-approver', 'Run the brand check.');
+      }
+      const flagged = variants.filter((v) => v.brandCheck.status === 'flagged');
+      if (!flagged.length) return pass(`Passed on all ${variants.length} variants.`);
+      const notes = flagged.map((v) => `${v.id}: ${v.brandCheck.note ?? 'flagged'}`).join('; ');
+      const a = validApproval('content-approver');
+      if (a) return pass(`Flag accepted by ${a.by}. ${notes}.`);
+      return hold(`${notes}.`, 'content-approver',
+        'The content approver accepts or rejects the flag. The automated check advises; it does not decide.');
+    },
+  },
+  {
+    id: 'CNT-05', stage: 'content', title: 'Regulated claims have legal review',
+    run({ variants, policy, validApproval }) {
+      const hits = [];
+      for (const v of variants) {
+        const text = [v.subject, v.preheader, ...(v.claims ?? [])].filter(Boolean).join(' | ');
+        for (const p of policy.claimPatterns ?? []) {
+          if (new RegExp(p.pattern, 'iu').test(text)) hits.push(`${p.label} (${v.id})`);
+        }
+      }
+      if (!hits.length) return pass('No regulated claim patterns found.');
+      const a = validApproval('legal');
+      if (a) return pass(`${list(hits)}. Reviewed by ${a.by}.`);
+      return hold(`Found: ${list(hits)}.`, 'legal',
+        'Legal confirms the claim and its conditions for each market.');
+    },
+  },
+  {
+    id: 'CNT-06', stage: 'content', title: 'Subject lines fit',
+    run({ variants, policy }) {
+      const max = policy.subject?.maxLength ?? 60;
+      const long = variants.filter((v) => (v.subject ?? '').length > max).map((v) => `${v.id} (${v.subject.length})`);
+      if (long.length) {
+        return warn(`Over ${max} characters: ${list(long)}.`, 'content-approver', 'Shorten, or accept truncation on mobile.');
+      }
+      return pass(`All within ${max} characters.`);
+    },
+  },
+
+  // ----- Delivery -----
+  {
+    id: 'DLV-01', stage: 'delivery', title: 'Seed list is assigned',
+    run({ delivery, policy }) {
+      if (!(policy.seedLists ?? []).includes(delivery.seedList)) {
+        return block(`Seed list "${delivery.seedList ?? 'none'}" is not a known list.`, 'send-authorizer',
+          'Attach the market seed list so real inboxes see the send.');
+      }
+      return pass(`${delivery.seedList}.`);
+    },
+  },
+  {
+    id: 'DLV-02', stage: 'delivery', title: 'Proof was sent and a person approved it',
+    run({ delivery, person }) {
+      if (!delivery.proof?.sent) {
+        return block('No proof has been sent.', 'content-approver', 'Send the proof to the seed list and review it rendered.');
+      }
+      if (!person(delivery.proof.approvedBy)) {
+        return hold('Proof sent. Nobody has approved it.', 'content-approver',
+          'The content approver opens the proof in a real inbox and approves it.');
+      }
+      return pass(`Proof approved by ${delivery.proof.approvedBy}.`);
+    },
+  },
+  {
+    id: 'DLV-03', stage: 'delivery', title: 'Send time is inside permitted hours',
+    run({ delivery, markets }) {
+      const at = new Date(delivery.sendAt);
+      if (isBlank(delivery.sendAt) || Number.isNaN(at.getTime())) {
+        return block('No valid send time.', 'send-authorizer', 'Set an explicit send time with a UTC offset.');
+      }
+      const local = markets.map((m) => {
+        const min = localMinutes(at, parseOffset(m.utcOffset));
+        const quiet = inWindow(min, hhmmToMinutes(m.quietHours.start), hhmmToMinutes(m.quietHours.end));
+        return { id: m.id, time: minutesToHhmm(min), quiet, window: `${m.quietHours.start} to ${m.quietHours.end}` };
+      });
+      const bad = local.filter((l) => l.quiet);
+      const times = local.map((l) => `${l.time} in ${l.id}`).join(', ');
+      if (bad.length) {
+        return block(`Lands at ${times}. Quiet hours: ${bad.map((b) => `${b.id} ${b.window}`).join('; ')}.`,
+          'send-authorizer', 'Move the send, or split it by market so each lands in local daytime.');
+      }
+      return pass(`Lands at ${times}.`);
+    },
+  },
+  {
+    id: 'DLV-04', stage: 'delivery', title: 'Wave plan fits the volume',
+    run({ delivery, volume, policy }) {
+      const waves = delivery.waves ?? [];
+      const total = waves.reduce((s, w) => s + (w.pct ?? 0), 0);
+      if (!waves.length || total !== 100) {
+        return block(`Waves add up to ${total}%, not 100%.`, 'deliverability-lead', 'Define waves that cover the whole audience.');
+      }
+      const { waveRequiredAbove, maxFirstWavePct } = policy.volume;
+      if (typeof volume !== 'number' || volume <= waveRequiredAbove) {
+        return pass(`${waves.length} wave${waves.length > 1 ? 's' : ''}. Waves are optional under ${fmt(waveRequiredAbove)} recipients.`);
+      }
+      if (waves.length < 2 || waves[0].pct > maxFirstWavePct) {
+        return block(
+          `${fmt(volume)} recipients in ${waves.length} wave${waves.length > 1 ? 's' : ''}, first wave ${waves[0].pct}%. ` +
+          `Over ${fmt(waveRequiredAbove)} needs at least 2 waves with a first wave of ${maxFirstWavePct}% or less.`,
+          'deliverability-lead', 'Split the send. A small first wave is the only point at which a bad send can still be stopped.');
+      }
+      return pass(`${waves.length} waves, first wave ${waves[0].pct}%.`);
+    },
+  },
+  {
+    id: 'DLV-05', stage: 'delivery', title: 'Typology and sender are approved',
+    run({ delivery, policy }) {
+      const problems = [];
+      if (!(policy.typologies ?? []).includes(delivery.typology)) problems.push(`typology "${delivery.typology ?? 'none'}"`);
+      if (!(policy.senderDomains ?? []).includes(delivery.senderDomain)) problems.push(`sender domain "${delivery.senderDomain ?? 'none'}"`);
+      if (problems.length) {
+        return block(`Not on the approved list: ${list(problems)}.`, 'deliverability-lead',
+          'Use an approved typology and an authenticated sender domain.');
+      }
+      return pass(`${delivery.typology}, sending from ${delivery.senderDomain}.`);
+    },
+  },
+  {
+    id: 'DLV-06', stage: 'delivery', title: 'A named person can stop the send',
+    run({ delivery, person }) {
+      if (!person(delivery.stopOwner)) {
+        return block(`Stop owner "${delivery.stopOwner ?? 'none'}" is not a known person.`, 'send-authorizer',
+          'Name the person who is watching the first wave and has the rights to stop the delivery.');
+      }
+      return pass(`${delivery.stopOwner} is on watch.`);
+    },
+  },
+
+  // ----- Approvals -----
+  {
+    id: 'APR-01', stage: 'approvals', title: 'Required approvals are in',
+    run({ policy, validApproval }) {
+      const required = policy.approvals?.always ?? [];
+      const missing = required.filter((r) => !validApproval(r));
+      if (missing.length) {
+        return hold(`Waiting on: ${list(missing)}.`, missing[0],
+          'Each role approves in its own name. Approvals are not transferable.');
+      }
+      return pass(`Signed: ${required.map((r) => `${r} (${validApproval(r).by})`).join(', ')}.`);
+    },
+  },
+  {
+    id: 'APR-02', stage: 'approvals', title: 'Approvals came from the right people',
+    run({ approvals, approvalProblem }) {
+      const problems = approvals.map(approvalProblem).filter(Boolean);
+      if (problems.length) {
+        return block(`${problems.join('; ')}.`, 'send-authorizer',
+          'Remove the invalid approval. An agent cannot approve, nobody approves outside their role, and the requester does not authorise their own send.');
+      }
+      return pass(approvals.length ? 'Every approval is from a person who holds the role.' : 'No approvals recorded yet.');
+    },
+  },
+
+  // ----- Measurement -----
+  {
+    id: 'MSR-01', stage: 'measurement', title: 'Tracking is on',
+    run({ delivery }) {
+      if (!delivery.tracking?.enabled) {
+        return block('Tracking is off.', 'campaign-owner', 'Turn tracking on. A send that cannot be measured cannot inform the next brief.');
+      }
+      if (isBlank(delivery.tracking.utmCampaign)) {
+        return warn('Tracking is on, but there is no campaign tag on links.', 'campaign-owner', 'Add the campaign tag so web analytics can attribute visits.');
+      }
+      return pass(`Tracking on, tagged ${delivery.tracking.utmCampaign}.`);
+    },
+  },
+  {
+    id: 'MSR-02', stage: 'measurement', title: 'Control group is set',
+    run({ audience, volume, policy }) {
+      const { requiredAbove, minPct } = policy.controlGroup ?? {};
+      if (typeof volume !== 'number' || volume <= requiredAbove) return pass(`Optional under ${fmt(requiredAbove)} recipients.`);
+      const pct = audience.controlGroupPct ?? 0;
+      if (pct < minPct) {
+        return warn(`Control group is ${pct}%. Policy asks for ${minPct}% above ${fmt(requiredAbove)} recipients.`,
+          'campaign-owner', 'Hold back a control group, or record why this send has none.');
+      }
+      return pass(`${pct}% held back.`);
+    },
+  },
+];
+
+// ---------- evaluation ----------
+
+function evaluate(pkg, policy) {
+  const ctx = buildContext(pkg, policy);
+  const checks = RULES.map((rule) => {
+    let result;
+    try {
+      result = rule.run(ctx);
+    } catch (err) {
+      result = block(`This check could not be evaluated (${err.message}).`, 'send-authorizer',
+        'Fix the package or the policy so the check can run. A check that cannot run does not pass.');
+    }
+    return { id: rule.id, stage: rule.stage, title: rule.title, ...result };
+  });
+
+  const worst = checks.reduce((w, c) => Math.max(w, RANK[c.status]), 0);
+  const verdict = worst === RANK.block ? 'BLOCK' : worst === RANK.hold ? 'HOLD' : 'GO';
+  const counts = { pass: 0, warn: 0, hold: 0, block: 0 };
+  for (const c of checks) counts[c.status] += 1;
+
+  const routes = [];
+  for (const c of checks) {
+    if (c.status === 'pass') continue;
+    let r = routes.find((x) => x.owner === c.owner);
+    if (!r) routes.push((r = { owner: c.owner, items: [] }));
+    r.items.push({ id: c.id, status: c.status, title: c.title });
+  }
+  routes.sort((a, b) =>
+    Math.max(...b.items.map((i) => RANK[i.status])) - Math.max(...a.items.map((i) => RANK[i.status])));
+
+  return {
+    packageId: pkg.packageId ?? null,
+    campaign: pkg.brief?.name ?? null,
+    policyVersion: policy.version ?? null,
+    verdict,
+    counts,
+    routes,
+    checks,
+  };
+}
+
+const VERDICT_TEXT = {
+  GO: 'Cleared for activation',
+  HOLD: 'Waiting on people',
+  BLOCK: 'Do not send',
+};
+
+// ---------- audit fingerprint ----------
+
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * SHA-256 over the exact package and policy version that were judged.
+ * If the package changes after the verdict, the fingerprint no longer matches.
+ */
+async function fingerprint(pkg, policy) {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return null;
+  const bytes = new TextEncoder().encode(canonical({ package: pkg, policyVersion: policy.version ?? null }));
+  const digest = await subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function auditRecord(pkg, policy, evaluatedAt = new Date().toISOString()) {
+  const result = evaluate(pkg, policy);
+  return { ...result, evaluatedAt, fingerprint: await fingerprint(pkg, policy) };
+}
+
+    return { STAGES, RULES, evaluate, fingerprint, VERDICT_TEXT };
+  })();
+
+  const POLICY = {"version":"2026.11-r1","org":"Lumen & Loom (fictional retailer, synthetic data)","markets":{"AT":{"name":"Austria","requiredLocales":["de-AT"],"utcOffset":"+01:00","quietHours":{"start":"20:00","end":"08:00"},"consent":{"email":"marketing-email-opt-in","push":"push-permission"}},"GR":{"name":"Greece","requiredLocales":["el-GR"],"utcOffset":"+02:00","quietHours":{"start":"20:00","end":"08:00"},"consent":{"email":"marketing-email-opt-in","push":"push-permission"}}},"people":[{"id":"k.weber","roles":["campaign-owner"]},{"id":"m.hofer","roles":["audience-owner"]},{"id":"e.papadaki","roles":["content-approver"]},{"id":"j.novak","roles":["send-authorizer"]},{"id":"s.lindqvist","roles":["deliverability-lead"]},{"id":"a.moretti","roles":["legal"]}],"audienceRegistry":[{"id":"AUD-LOYALTY-ACTIVE","name":"Loyalty members, active 12 months","owner":"m.hofer","consentBasis":"marketing-email-opt-in"},{"id":"AUD-LAPSED-HV","name":"High-value lapsed, 6 to 18 months","owner":"m.hofer","consentBasis":"marketing-email-opt-in"}],"schemaFields":["firstName","lastName","loyaltyTier","preferredStore","lastPurchaseDate","city"],"requiredSuppressions":["opt-out","quarantine","blocklist"],"pressure":{"maxTouchesPer7d":3},"volume":{"largeSendThreshold":250000,"waveRequiredAbove":500000,"maxFirstWavePct":20},"controlGroup":{"requiredAbove":100000,"minPct":5},"subject":{"maxLength":60},"seedLists":["SEED-AT-CORE","SEED-GR-CORE","SEED-EU-CORE"],"typologies":["EU-marketing-default","EU-transactional"],"senderDomains":["news.lumenloom.example"],"approvals":{"always":["content-approver","send-authorizer"]},"claimPatterns":[{"label":"free or gratis","pattern":"\\b(free|gratis)\\b|δωρεάν"},{"label":"guarantee","pattern":"guarantee|garantie|garantiert|εγγύηση"},{"label":"financing","pattern":"0\\s?% (finanzierung|financing)|άτοκ"},{"label":"lowest price","pattern":"lowest price|tiefstpreis|χαμηλότερη τιμή"}]};
+  const SCENARIOS = [{"id":"clean","label":"A clean handoff","blurb":"Registered audience, both languages, every signature in.","pkg":{"packageId":"HP-2026-1112-001","producedBy":{"type":"agent","name":"campaign-planning-agent","runId":"run-7f3a91"},"requestedBy":"k.weber","brief":{"name":"Winter Edit: member early access","objective":"Give loyalty members 48 hours of early access to the Winter Edit before public launch.","kpi":{"metric":"click-to-open rate","target":"12%"},"owner":"k.weber","channel":"email","markets":["AT","GR"]},"audience":{"name":"Loyalty members, active 12 months","source":"registry","registryId":"AUD-LOYALTY-ACTIVE","estimatedVolume":184000,"consentBasis":"marketing-email-opt-in","suppressions":["opt-out","quarantine","blocklist"],"controlGroupPct":5},"content":{"variants":[{"id":"V1-de-AT","locale":"de-AT","subject":"Winter Edit: Früher Zugang für Mitglieder","preheader":"48 Stunden vor allen anderen.","personalizationFields":["firstName","loyaltyTier"],"hasUnsubscribe":true,"claims":[],"aiGenerated":true,"brandCheck":{"status":"passed"}},{"id":"V2-el-GR","locale":"el-GR","subject":"Winter Edit: Πρώιμη πρόσβαση για τα μέλη","preheader":"48 ώρες πριν από όλους.","personalizationFields":["firstName","loyaltyTier"],"hasUnsubscribe":true,"claims":[],"aiGenerated":true,"brandCheck":{"status":"passed"}}]},"delivery":{"sendAt":"2026-11-17T10:30:00+01:00","waves":[{"pct":100}],"seedList":"SEED-EU-CORE","proof":{"sent":true,"approvedBy":"e.papadaki"},"typology":"EU-marketing-default","senderDomain":"news.lumenloom.example","stopOwner":"j.novak","tracking":{"enabled":true,"utmCampaign":"winter-edit-early-access"}},"calendarContext":{"plannedTouches7d":2},"approvals":[{"role":"content-approver","by":"e.papadaki","byType":"human","at":"2026-11-12T14:02:00+01:00"},{"role":"send-authorizer","by":"j.novak","byType":"human","at":"2026-11-12T16:40:00+01:00"}]}},{"id":"sign-off","label":"Needs people","blurb":"Nothing is wrong. Four people still have to sign.","pkg":{"packageId":"HP-2026-1112-002","producedBy":{"type":"agent","name":"campaign-planning-agent","runId":"run-a41c07"},"requestedBy":"k.weber","brief":{"name":"Winter Edit: win back lapsed buyers","objective":"Bring back customers who bought home textiles last winter and have not bought since.","kpi":{"metric":"reactivation rate","target":"3%"},"owner":"k.weber","channel":"email","markets":["AT","GR"]},"audience":{"name":"Bought textiles last winter, silent since","source":"agent-created","estimatedVolume":420000,"consentBasis":"marketing-email-opt-in","suppressions":["opt-out","quarantine","blocklist"],"controlGroupPct":5},"content":{"variants":[{"id":"V1-de-AT","locale":"de-AT","subject":"Ihr Winter wird wärmer","preheader":"Die neue Kollektion ist da.","personalizationFields":["firstName","lastPurchaseDate"],"hasUnsubscribe":true,"claims":["Gratis Versand ab 49 €"],"aiGenerated":true,"brandCheck":{"status":"passed"}},{"id":"V2-el-GR","locale":"el-GR","subject":"Ο χειμώνας σας γίνεται πιο ζεστός","preheader":"Η νέα συλλογή είναι εδώ.","personalizationFields":["firstName","lastPurchaseDate"],"hasUnsubscribe":true,"claims":[],"aiGenerated":true,"brandCheck":{"status":"flagged","note":"hero image crops the logo clear space"}}]},"delivery":{"sendAt":"2026-11-18T10:00:00+01:00","waves":[{"pct":100}],"seedList":"SEED-EU-CORE","proof":{"sent":true},"typology":"EU-marketing-default","senderDomain":"news.lumenloom.example","stopOwner":"j.novak","tracking":{"enabled":true,"utmCampaign":"winter-edit-winback"}},"calendarContext":{"plannedTouches7d":2},"approvals":[]}},{"id":"must-not-send","label":"Must not send","blurb":"The agent approved its own send. Fourteen faults.","pkg":{"packageId":"HP-2026-1112-003","producedBy":{"type":"agent","name":"campaign-planning-agent","runId":"run-c9e2d5"},"requestedBy":"k.weber","brief":{"name":"Winter Edit: last chance","objective":"Final reminder before the Winter Edit early access closes.","kpi":{"metric":"revenue per send","target":""},"owner":"k.weber","channel":"email","markets":["AT","GR"]},"audience":{"name":"Everyone who browsed winter categories","source":"agent-created","estimatedVolume":910000,"suppressions":["opt-out"],"controlGroupPct":0},"content":{"variants":[{"id":"V1-de-AT","locale":"de-AT","subject":"Nur noch heute: Ihr früher Zugang zum Winter Edit endet um Mitternacht","preheader":"Nur für Mitglieder.","personalizationFields":["firstName","favouriteCategory"],"hasUnsubscribe":true,"claims":["Garantiert die besten Preise"],"aiGenerated":true,"brandCheck":{"status":"passed"}},{"id":"V2-en","locale":"en","subject":"Last chance: early access ends tonight","preheader":"Do not miss it.","personalizationFields":["firstName"],"hasUnsubscribe":false,"claims":[],"aiGenerated":true,"brandCheck":{"status":"not-run"}}]},"delivery":{"sendAt":"2026-11-18T21:30:00+01:00","waves":[{"pct":100}],"seedList":"","proof":{"sent":false},"typology":"EU-marketing-default","senderDomain":"news.lumenloom.example","stopOwner":"campaign-planning-agent","tracking":{"enabled":true,"utmCampaign":""}},"calendarContext":{"plannedTouches7d":4},"approvals":[{"role":"send-authorizer","by":"campaign-planning-agent","byType":"agent","at":"2026-11-12T09:15:00+01:00"}]}}];
+
+  // ---------- reference data ----------
+  const AGENT = 'campaign-planning-agent';
+  const ROLE_LABEL = {
+    'campaign-owner': 'Campaign owner',
+    'audience-owner': 'Audience owner',
+    'content-approver': 'Content approver',
+    'send-authorizer': 'Send authoriser',
+    'deliverability-lead': 'Deliverability lead',
+    'legal': 'Legal',
+  };
+  const personFor = (role) => (POLICY.people.find((p) => p.roles.includes(role)) || {}).id;
+  const VARIANT_TEMPLATES = {
+    'de-AT': { id: 'V-de-AT', locale: 'de-AT', subject: 'Winter Edit: Früher Zugang für Mitglieder', preheader: '48 Stunden vor allen anderen.' },
+    'el-GR': { id: 'V-el-GR', locale: 'el-GR', subject: 'Winter Edit: Πρώιμη πρόσβαση για τα μέλη', preheader: '48 ώρες πριν από όλους.' },
+  };
+  const CLAIM_TEXT = { 'de-AT': 'Gratis Versand ab 49 €', 'el-GR': 'Δωρεάν αποστολή', en: 'Free delivery' };
+  const REGISTRY_AUDIENCE = POLICY.audienceRegistry[0];
+  const BRAND_RANK = { passed: 0, flagged: 1, 'not-run': 2 };
+
+  // ---------- state ----------
+  let pkg = null;
+  let scenarioId = null;
+  let locales = [];
+  let stash = {};
+  let agentAudienceName = '';
+  let previous = {};
+  let run = 0;
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const num = (n) => Number(n).toLocaleString('en-GB');
+  const hhmm = (min) => String(Math.floor(min / 60)).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0');
+  const variants = () => pkg.content.variants;
+  const hasHumanApproval = (role) => pkg.approvals.some((a) => a.role === role && a.byType !== 'agent');
+
+  // ---------- controls: each one reads from and writes to the package ----------
+  function approvalControl(role) {
+    return {
+      id: 'ap-' + role, type: 'check',
+      label: () => ROLE_LABEL[role] + ' <span class="mono">' + esc(personFor(role)) + '</span>',
+      get: () => hasHumanApproval(role),
+      set: (v) => {
+        pkg.approvals = pkg.approvals.filter((a) => !(a.role === role && a.byType !== 'agent'));
+        if (v) pkg.approvals.push({ role, by: personFor(role), byType: 'human', at: '2026-11-12T16:00:00+01:00' });
+      },
+    };
+  }
+
+  function localeControl(locale) {
+    return {
+      id: 'loc-' + locale, type: 'check',
+      label: () => '<code>' + esc(locale) + '</code>',
+      get: () => variants().some((v) => v.locale === locale),
+      set: (v) => {
+        if (!v) {
+          stash[locale] = variants().find((x) => x.locale === locale);
+          pkg.content.variants = variants().filter((x) => x.locale !== locale);
+        } else {
+          const base = stash[locale] || Object.assign({
+            personalizationFields: ['firstName'], hasUnsubscribe: true, claims: [], aiGenerated: true, brandCheck: { status: 'passed' },
+          }, VARIANT_TEMPLATES[locale]);
+          pkg.content.variants.push(base);
+        }
+      },
+    };
+  }
+
+  function groups() {
+    return [
+      { title: 'Brief', controls: [
+        { id: 'kpi', type: 'check', label: () => 'Has a KPI and a target',
+          get: () => !!(pkg.brief.kpi && pkg.brief.kpi.target),
+          set: (v) => { pkg.brief.kpi.target = v ? '4%' : ''; } },
+      ] },
+      { title: 'Audience', controls: [
+        { id: 'aud-source', type: 'seg', label: 'Where the audience came from',
+          options: [{ value: 'registry', label: 'Registry' }, { value: 'agent-created', label: 'Built by the agent' }],
+          get: () => pkg.audience.source,
+          set: (v) => {
+            pkg.audience.source = v;
+            if (v === 'registry') { pkg.audience.registryId = REGISTRY_AUDIENCE.id; pkg.audience.name = REGISTRY_AUDIENCE.name; }
+            else { delete pkg.audience.registryId; pkg.audience.name = agentAudienceName; }
+          } },
+        { id: 'volume', type: 'range', label: 'Recipients', min: 50000, max: 1000000, step: 10000,
+          get: () => pkg.audience.estimatedVolume, set: (v) => { pkg.audience.estimatedVolume = v; }, show: (v) => num(v) },
+        { id: 'touches', type: 'range', label: 'Touches to this audience in 7 days', min: 1, max: 5, step: 1,
+          get: () => pkg.calendarContext.plannedTouches7d, set: (v) => { pkg.calendarContext.plannedTouches7d = v; },
+          show: (v) => v + ' of ' + POLICY.pressure.maxTouchesPer7d + ' allowed' },
+        { id: 'consent', type: 'check', label: () => 'Carries a consent basis',
+          get: () => !!pkg.audience.consentBasis,
+          set: (v) => { if (v) pkg.audience.consentBasis = 'marketing-email-opt-in'; else delete pkg.audience.consentBasis; } },
+        { type: 'sub', text: 'Suppressions applied' },
+        ...POLICY.requiredSuppressions.map((s) => ({
+          id: 'sup-' + s, type: 'check', label: () => s.charAt(0).toUpperCase() + s.slice(1),
+          get: () => pkg.audience.suppressions.includes(s),
+          set: (v) => { pkg.audience.suppressions = pkg.audience.suppressions.filter((x) => x !== s); if (v) pkg.audience.suppressions.push(s); },
+        })),
+      ] },
+      { title: 'Content', controls: [
+        { type: 'sub', text: 'Language variants produced (Austria needs de-AT, Greece needs el-GR)' },
+        ...locales.map(localeControl),
+        { id: 'unsub', type: 'check', label: () => 'Unsubscribe link in every variant',
+          get: () => variants().length > 0 && variants().every((v) => v.hasUnsubscribe),
+          set: (v) => { variants().forEach((x) => { x.hasUnsubscribe = v; }); } },
+        { id: 'bad-field', type: 'check', label: () => 'Uses <code>favouriteCategory</code>, a field the schema does not have',
+          get: () => variants().some((v) => v.personalizationFields.includes('favouriteCategory')),
+          set: (v) => {
+            variants().forEach((x) => { x.personalizationFields = x.personalizationFields.filter((f) => f !== 'favouriteCategory'); });
+            if (v && variants()[0]) variants()[0].personalizationFields.push('favouriteCategory');
+          } },
+        { id: 'claim', type: 'check', label: () => 'Makes a free-delivery or guarantee claim',
+          get: () => variants().some((v) => (v.claims || []).length > 0),
+          set: (v) => {
+            variants().forEach((x) => { x.claims = []; });
+            if (v && variants()[0]) variants()[0].claims = [CLAIM_TEXT[variants()[0].locale] || CLAIM_TEXT.en];
+          } },
+        { id: 'brand', type: 'seg', label: 'Automated brand check',
+          options: [{ value: 'passed', label: 'Passed' }, { value: 'flagged', label: 'Flagged' }, { value: 'not-run', label: 'Not run' }],
+          get: () => variants().reduce((w, v) => (BRAND_RANK[(v.brandCheck || {}).status || 'not-run'] > BRAND_RANK[w] ? (v.brandCheck || {}).status || 'not-run' : w), 'passed'),
+          set: (v) => {
+            variants().forEach((x) => { x.brandCheck = { status: 'passed' }; });
+            const last = variants()[variants().length - 1];
+            if (last && v === 'flagged') last.brandCheck = { status: 'flagged', note: 'hero image crops the logo clear space' };
+            if (last && v === 'not-run') last.brandCheck = { status: 'not-run' };
+          } },
+      ] },
+      { title: 'Delivery', controls: [
+        { id: 'send-time', type: 'range', label: 'Send time', min: 360, max: 1380, step: 30,
+          get: () => { const m = /T(\d{2}):(\d{2})/.exec(pkg.delivery.sendAt); return Number(m[1]) * 60 + Number(m[2]); },
+          set: (v) => { pkg.delivery.sendAt = pkg.delivery.sendAt.replace(/T\d{2}:\d{2}/, 'T' + hhmm(v)); },
+          show: (v) => hhmm(v) + ' Vienna, ' + hhmm((v + 60) % 1440) + ' Athens' },
+        { id: 'waves', type: 'seg', label: 'Wave plan',
+          options: [{ value: 'one', label: 'One send' }, { value: 'three', label: '10 / 30 / 60' }],
+          get: () => (pkg.delivery.waves.length > 1 ? 'three' : 'one'),
+          set: (v) => { pkg.delivery.waves = v === 'three' ? [{ pct: 10 }, { pct: 30 }, { pct: 60 }] : [{ pct: 100 }]; } },
+        { id: 'seed', type: 'check', label: () => 'Seed list attached',
+          get: () => POLICY.seedLists.includes(pkg.delivery.seedList),
+          set: (v) => { pkg.delivery.seedList = v ? 'SEED-EU-CORE' : ''; } },
+        { id: 'proof-sent', type: 'check', label: () => 'Proof sent',
+          get: () => !!pkg.delivery.proof.sent,
+          set: (v) => { pkg.delivery.proof = v ? { sent: true } : { sent: false }; } },
+        { id: 'proof-ok', type: 'check', label: () => 'Proof approved by <span class="mono">' + esc(personFor('content-approver')) + '</span>',
+          disabled: () => !pkg.delivery.proof.sent,
+          get: () => !!pkg.delivery.proof.approvedBy,
+          set: (v) => { if (v) pkg.delivery.proof.approvedBy = personFor('content-approver'); else delete pkg.delivery.proof.approvedBy; } },
+        { id: 'stop', type: 'seg', label: 'Who can stop the send',
+          options: [{ value: 'person', label: personFor('send-authorizer') }, { value: 'agent', label: 'The agent' }],
+          get: () => (pkg.delivery.stopOwner === AGENT ? 'agent' : 'person'),
+          set: (v) => { pkg.delivery.stopOwner = v === 'agent' ? AGENT : personFor('send-authorizer'); } },
+      ] },
+      { title: 'Signatures', controls: [
+        approvalControl('audience-owner'),
+        approvalControl('deliverability-lead'),
+        approvalControl('legal'),
+        approvalControl('content-approver'),
+        approvalControl('send-authorizer'),
+        { id: 'agent-signed', type: 'check', label: () => 'The agent approved its own send',
+          get: () => pkg.approvals.some((a) => a.byType === 'agent'),
+          set: (v) => {
+            pkg.approvals = pkg.approvals.filter((a) => a.byType !== 'agent');
+            if (v) pkg.approvals.push({ role: 'send-authorizer', by: AGENT, byType: 'agent', at: '2026-11-12T09:15:00+01:00' });
+          } },
+      ] },
+    ];
+  }
+
+  let controlIndex = {};
+
+  function buildControls() {
+    controlIndex = {};
+    const html = groups().map((g) => {
+      const inner = g.controls.map((c) => {
+        if (c.type === 'sub') return '<p class="sub">' + esc(c.text) + '</p>';
+        controlIndex[c.id] = c;
+        if (c.type === 'check') {
+          return '<label class="chk"><input type="checkbox" id="c-' + c.id + '" data-c="' + c.id + '"><span>' + c.label() + '</span></label>';
+        }
+        if (c.type === 'seg') {
+          return '<fieldset class="seg"><legend>' + esc(c.label) + '</legend><div class="seg-opts">' +
+            c.options.map((o) => '<label><input type="radio" name="c-' + c.id + '" id="c-' + c.id + '-' + o.value + '" value="' + o.value + '" data-c="' + c.id + '"><span>' + esc(o.label) + '</span></label>').join('') +
+            '</div></fieldset>';
+        }
+        return '<div class="rng"><label for="c-' + c.id + '">' + esc(c.label) + '</label><output id="o-' + c.id + '" for="c-' + c.id + '"></output>' +
+          '<input type="range" id="c-' + c.id + '" data-c="' + c.id + '" min="' + c.min + '" max="' + c.max + '" step="' + c.step + '"></div>';
+      }).join('');
+      return '<div class="group"><p class="label">' + esc(g.title) + '</p>' + inner + '</div>';
+    }).join('');
+    $('controls').innerHTML = html;
+    syncControls();
+  }
+
+  function syncControls() {
+    for (const id of Object.keys(controlIndex)) {
+      const c = controlIndex[id];
+      const value = c.get();
+      if (c.type === 'check') {
+        const el = $('c-' + id);
+        el.checked = !!value;
+        el.disabled = c.disabled ? c.disabled() : false;
+      } else if (c.type === 'seg') {
+        const el = $('c-' + id + '-' + value);
+        if (el) el.checked = true;
+      } else {
+        const el = $('c-' + id);
+        if (document.activeElement !== el) el.value = value;
+        $('o-' + id).textContent = c.show(value);
+      }
+    }
+  }
+
+  $('controls').addEventListener('input', (e) => {
+    const c = controlIndex[e.target.dataset.c];
+    if (!c) return;
+    if (c.type === 'check') c.set(e.target.checked);
+    else if (c.type === 'seg') c.set(e.target.value);
+    else c.set(Number(e.target.value));
+    update(true);
+  });
+  $('controls').addEventListener('submit', (e) => e.preventDefault());
+
+  // ---------- rendering ----------
+  const WORD = { pass: 'PASS', warn: 'WARN', hold: 'HOLD', block: 'BLOCK' };
+  const RANK = { pass: 0, warn: 1, hold: 2, block: 3 };
+
+  function update(flash) {
+    syncControls();
+    const result = Gate.evaluate(pkg, POLICY);
+
+    $('verdict').dataset.verdict = result.verdict;
+    $('stamp').textContent = result.verdict;
+    const k = result.counts;
+    const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+    $('verdict-line').textContent = Gate.VERDICT_TEXT[result.verdict] + (result.verdict === 'GO' && k.warn ? ', with ' + plural(k.warn, 'warning') : '');
+    $('verdict-counts').textContent = k.pass + ' passed, ' + plural(k.block, 'block') + ', ' + plural(k.hold, 'hold') + ', ' + plural(k.warn, 'warning');
+    $('exit-code').textContent = { GO: 0, HOLD: 1, BLOCK: 2 }[result.verdict];
+    $('package-name').innerHTML = esc(pkg.brief.name) + ' <span class="mono">' + esc(pkg.packageId) + '</span>';
+
+    $('stages').innerHTML = Gate.STAGES.map((s) => {
+      const own = result.checks.filter((c) => c.stage === s.id);
+      const worst = own.reduce((w, c) => (RANK[c.status] > RANK[w] ? c.status : w), 'pass');
+      const open = own.filter((c) => c.status === 'hold' || c.status === 'block').length;
+      const status = worst === 'warn' ? 'pass' : worst;
+      return '<button type="button" class="stage-tab" data-status="' + status + '" data-go="stage-' + s.id + '"><i></i><b>' + esc(s.label) + '</b><span>' +
+        (open ? open + ' open' : 'clear') + '</span></button>';
+    }).join('');
+
+    $('who').innerHTML = result.routes.length
+      ? result.routes.map((r) => '<div class="who-row"><span>' + esc(ROLE_LABEL[r.owner] || r.owner) + ' <span class="mono">' + esc(personFor(r.owner) || '') + '</span></span><span class="ids">' +
+          r.items.map((i) => '<span class="mono" data-status="' + i.status + '" title="' + esc(i.title) + '">' + i.id + '</span>').join('') + '</span></div>').join('')
+      : '<p class="who-none">Nobody. Every check passed and every signature is in.</p>';
+
+    $('checks').innerHTML = Gate.STAGES.map((s) => {
+      const own = result.checks.filter((c) => c.stage === s.id);
+      const passed = own.filter((c) => c.status === 'pass').length;
+      return '<section class="stage" id="stage-' + s.id + '"><div class="stage-head"><p class="label">' + esc(s.label) + '</p><span class="mono">' + passed + '/' + own.length + '</span></div>' +
+        own.map((c) => {
+          const changed = flash && previous[c.id] && previous[c.id] !== c.status;
+          return '<div class="check' + (changed ? ' changed' : '') + '" data-status="' + c.status + '">' +
+            '<span class="st" data-status="' + c.status + '">' + WORD[c.status] + '</span>' +
+            '<span class="mono id">' + c.id + '</span>' +
+            '<div class="body"><span class="title">' + esc(c.title) + '</span><span class="detail">' + esc(c.detail) + '</span>' +
+            (c.status !== 'pass' ? '<span class="fix"><b>' + esc(ROLE_LABEL[c.owner] || c.owner) + ':</b> ' + esc(c.fix) + '</span>' : '') +
+            '</div></div>';
+        }).join('') + '</section>';
+    }).join('');
+    previous = Object.fromEntries(result.checks.map((c) => [c.id, c.status]));
+
+    $('package-json').textContent = JSON.stringify(pkg, null, 2);
+    const record = Object.assign({}, result, { evaluatedAt: new Date().toISOString(), fingerprint: null });
+    const mine = ++run;
+    const writeRecord = () => { $('audit-json').textContent = JSON.stringify(record, null, 2); };
+    writeRecord();
+    $('fp').textContent = '…';
+    Gate.fingerprint(pkg, POLICY).then((fp) => {
+      if (mine !== run) return;
+      record.fingerprint = fp;
+      $('fp').textContent = fp ? fp.slice(0, 16) : 'unavailable';
+      writeRecord();
+    }).catch(() => { if (mine === run) $('fp').textContent = 'unavailable'; });
+  }
+
+  $('stages').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-go]');
+    if (!b) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    $(b.dataset.go).scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  });
+
+  $('copy-audit').addEventListener('click', () => {
+    const text = $('audit-json').textContent;
+    const done = () => { $('copy-audit').textContent = 'Copied'; setTimeout(() => { $('copy-audit').textContent = 'Copy record'; }, 1600); };
+    const select = () => { const r = document.createRange(); r.selectNodeContents($('audit-json')); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); $('copy-audit').textContent = 'Selected. Press copy'; };
+    try { navigator.clipboard.writeText(text).then(done, select); } catch (err) { select(); }
+  });
+
+  // ---------- scenarios ----------
+  function loadScenario(id) {
+    const s = SCENARIOS.find((x) => x.id === id) || SCENARIOS[0];
+    scenarioId = s.id;
+    pkg = JSON.parse(JSON.stringify(s.pkg));
+    stash = {};
+    previous = {};
+    agentAudienceName = pkg.audience.source === 'agent-created' ? pkg.audience.name : 'Bought textiles last winter, silent since';
+    locales = ['de-AT', 'el-GR'];
+    pkg.content.variants.forEach((v) => { if (!locales.includes(v.locale)) locales.push(v.locale); });
+    document.querySelectorAll('.scenario').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === scenarioId)));
+    buildControls();
+    update(false);
+  }
+
+  $('scenarios').innerHTML = SCENARIOS.map((s) =>
+    '<button type="button" class="scenario" data-id="' + s.id + '" aria-pressed="false"><b>' + esc(s.label) + '</b><span>' + esc(s.blurb) + '</span></button>').join('');
+  $('scenarios').addEventListener('click', (e) => {
+    const b = e.target.closest('.scenario');
+    if (b) loadScenario(b.dataset.id);
+  });
+  $('policy-version').textContent = POLICY.version;
+  $('rule-count').textContent = Gate.RULES.length;
+
+  loadScenario('sign-off');
+})();
+</script>
+
+</body></html>
